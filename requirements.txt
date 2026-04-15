@@ -1,0 +1,8 @@
+fastapi
+uvicorn[standard]
+aiofiles
+requests
+httpx
+beautifulsoup4
+pydantic
+cachetools
