@@ -1,18 +1,18 @@
 <img width="2872" height="2236" alt="1" src="https://github.com/user-attachments/assets/3e2874ed-7a7d-4315-a5f0-c1f0c6c22240" />
 
-# 🍎 Apple Music to Subsonic/Navidrome Bridge
+# 🍎 Apple Music to Subsonic / Navidrome Bridge
 基于 FastAPI 构建的高性能桥接服务。它能够将 Apple Music 的海量高解析度曲库无缝接入到支持 Subsonic / Navidrome 协议的第三方播放器（如 Feishin / ds one / 箭头音乐 等）中。
 
 ✨ 功能特性
-播放体验：模拟 Subsonic / Navidrome 接口协议，适配第三方音乐客户端。
+1. 播放体验：模拟 Subsonic / Navidrome 接口协议，适配第三方音乐客户端。
 
-实时流媒体解密：利用 downloader或者 go run main.go ，实现下载与本地解密流式转发。
+2. 实时流媒体解密：利用 downloader 或者 go run main.go ，实现下载与本地解密流式转发。
 
-元数据：采用 AMP-API + 网页脱壳爬虫 双引擎架构，抓取（US/CN区）歌手简介、封面（强行限制 300x300）及相关艺人。
+3. 元数据：采用 AMP-API + 网页脱壳爬虫 双引擎架构，抓取（US/CN区）歌手简介、封面（强行限制 300x300）及相关艺人。
 
-歌词与播放列表：支持双语歌词，支持 SQLite 驱动的云端自建歌单双向同步。
+4. 歌词与播放列表：支持双语歌词，支持 SQLite 驱动的云端自建歌单双向同步。
 
-Token 管理：自动侦测并从苹果网页端抽取有效 Bearer Token，支持内存与硬盘双重缓存，过期/失效自动续期。
+5. Bearer Token 管理：自动检测并从苹果网页端获取有效 Bearer Token，支持内存与硬盘双重缓存，过期/失效自动续期。
 
 # 🛠️ 环境要求
 1. Linux / macOS / Windows
@@ -52,32 +52,37 @@ feishin 1.2.0 版本 （只适配这个版本的feishin）
 ```text
 pip install -r requirements.txt
 ```
-### 2. 配置账号密码
+### 2. 配置账号密码：
 user.txt 的文件，请按照 用户名:密码 的格式写入，用于拦截播放器的非法请求，格式如下:
 ```text
 sky666:sky666
 ```
-### 3.项目启动：
+### 3. 如果用解压后的 downloader ，必须给权限，downloader 必须和 config.yaml 在一起，路径建议放在项目根目录下：
+```text
+chmod +x ./downloader
+```
+### 4. 项目启动，默认端口 8880 ：
 ```text
 python main.py
 ```
 
 ## 🧭 使用指南与注意事项
-### 1. 目录读写权限
+### 1. 目录读写权限：
 临时缓存 (./temp_cache)：程序会在运行目录下自动创建该文件夹用于存放下载的音频文件。请确保运行此脚本的用户具有对当前目录的读写权限，否则流媒体转发将报 500 错误。
 Token 缓存 (apple_token_cache.json)：请勿手动锁定或修改该文件的只读权限。程序需要随时对其进行重写覆写以保持系统持续运转。
 
-### 2. 风控与并发限制 (Anti-Ban Limits)
+### 2. 风控与并发限制 (Anti-Ban Limits)：
 系统底层（subsonic.py）内置了严格的并发锁：DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)。
 含义：同时触发的底层解密下载任务最多只有 2 个。这是为了防止由于客户端预加载或瞬间高频并发，导致苹果服务器判定恶意请求而封锁服务器 IP。强烈建议不要轻易调大此数值。
 
-### 3. 虚拟模块与视频降级
+### 3. 虚拟模块与视频降级：
 苹果的部分专辑会附带 MV 或特供视频。由于 Subsonic 客户端主要针对音频设计，目前本桥接器对视频内容做了安全的降级占位处理。
 如果您在部分歌手详情页中看到一个名为 ★ Videos ★ 的专辑，这是正常的虚拟占位符设计，用于拦截非法的视频解析请求，防止客户端崩溃，并非 Bug。
 
 ## ⚠️ 免责声明
-本项目仅供学习、研究和代码技术交流使用。
-严禁将本项目用于任何商业用途或大规模公开服务。使用本项目产生的一切后果及账号风险由使用者自行承担。
+### 1. 本项目仅供学习、研究和代码技术交流使用。
+### 2. 严禁将本项目用于任何商业用途或大规模公开服务。
+### 3. 使用本项目产生的一切后果及账号风险由使用者自行承担。
 
 ```mermaid
 flowchart TD
