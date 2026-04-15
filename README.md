@@ -79,8 +79,10 @@ https://www.last.fm/api/account/create
 ```
 ```text
 python fm.py
-执行并获取 last.fm 的 session_key 并填入 config.yaml
+fm.py 里填入 api_key 和 api_secret
+执行 python fm.py 获取 last.fm 的 session_key 并填入 config.yaml
 注意：执行步骤按提示操作
+last.fm 需要在config.ymal里填入 3 个 key
 ```
 
 ## 🧭 使用指南与注意事项
