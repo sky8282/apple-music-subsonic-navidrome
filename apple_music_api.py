@@ -8,6 +8,7 @@ import time
 import requests
 import urllib.parse
 from bs4 import BeautifulSoup
+from cachetools import LRUCache
 
 class AppleMusicAPI:
     def __init__(self, storefront: str = "cn"):
@@ -16,6 +17,8 @@ class AppleMusicAPI:
         self.token_cache_file = "apple_token_cache.json"
         self.token = ""
         self.token_expires = 0
+        self.lyric_cache = LRUCache(maxsize=100)
+        
         self._ensure_valid_token()
 
     def _ensure_valid_token(self):
@@ -53,7 +56,7 @@ class AppleMusicAPI:
             if not token_match: raise Exception("JS文件中未匹配到Token")
 
             new_token = token_match.group(1)
-            new_expires = current_time + 86400 * 7 # 7 天的有效期
+            new_expires = current_time + 86400 * 7 # 赋予长达 7 天的有效期
 
             self.token = new_token
             self.token_expires = new_expires
@@ -71,6 +74,25 @@ class AppleMusicAPI:
             print(f"❌ 自动获取 Token 失败: {e}")
             return self.token
 
+    def _get_media_user_token(self, target_storefront: str) -> str:
+        try:
+            import yaml
+            import os
+            
+            config_path = "config.yaml" 
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f)
+                    for acc in config.get('accounts', []):
+                        if acc.get('storefront', '').lower() == target_storefront.lower():
+                            return acc.get('media-user-token', '')
+        except ImportError:
+            print("⚠️ [DEBUG] 未安装 pyyaml，无法解析 config.yaml。请运行: pip install pyyaml")
+        except Exception as e:
+            print(f"⚠️ [DEBUG] 读取 config.yaml 提取 token 失败: {e}")
+        return ""
+    
+    
     @property
     def headers(self):
         self._ensure_valid_token()
@@ -96,7 +118,6 @@ class AppleMusicAPI:
     async def search(self, keyword: str, limit: int = 20, types: str = "songs,albums,artists") -> Dict[str, Any]:
         safe_limit = min(limit, 25)
         url = f"{self.base_url}/catalog/{self.storefront}/search"
-        
         params = {
             "term": keyword,
             "limit": safe_limit,
@@ -133,7 +154,6 @@ class AppleMusicAPI:
             return resp.json().get("data", [{}])[0]
 
     async def get_artist_detail(self, artist_id: str) -> dict:
-        """获取歌手详情：增加自动重定向与脱壳逻辑"""
         url = f"{self.base_url}/catalog/{self.storefront}/artists/{artist_id}"
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
             try:
@@ -179,32 +199,94 @@ class AppleMusicAPI:
             return resp.json().get("data", [])
 
     async def get_lyrics(self, song_id: str) -> str:
-        url = f"{self.base_url}/catalog/{self.storefront}/songs/{song_id}/lyrics"
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers=self.headers)
-            if resp.status_code != 200: return ""
-            data = resp.json().get("data", [])
-            if not data: return ""
-            ttml = data[0].get("attributes", {}).get("ttml", "")
-            return self._parse_ttml_to_lrc(ttml)
+        if song_id in self.lyric_cache:
+            return self.lyric_cache[song_id]
 
-    async def get_artist_avatar(self, artist_id: str) -> str:
-        url = f"https://music.apple.com/{self.storefront}/artist/{artist_id}"
-        headers = {'User-Agent': 'Mozilla/5.0'}
+        storefronts = [self.storefront]
+        if self.storefront != "us": 
+            storefronts.append("us")
+            
+        lrc_types = ["syllable-lyrics", "lyrics"]
+            
         async with httpx.AsyncClient(timeout=10.0) as client:
-            try:
-                resp = await client.get(url, headers=headers)
-                if resp.status_code == 200:
-                    import re
-                    match = re.search(r'<meta property="og:image" content="([^"]+)"', resp.text)
-                    if match:
-                        return self.format_artwork(match.group(1))
-            except: pass
+            for sf in storefronts:
+                my_media_user_token = self._get_media_user_token(sf)
+                cookies = {}
+                if my_media_user_token and len(my_media_user_token) > 50:
+                    cookies["media-user-token"] = my_media_user_token
+
+                for ltype in lrc_types:
+                    url = f"https://amp-api.music.apple.com/v1/catalog/{sf}/songs/{song_id}/{ltype}"
+                    params = {
+                        "l": "zh-Hans-CN,zh-Hans;q=0.8,zh-Hant;q=0.6,en-US;q=0.4",
+                        "extend": "ttmlLocalizations"
+                    }    
+                    
+                    try:
+                        resp = await client.get(url, headers=self.headers, params=params, cookies=cookies)
+                        if resp.status_code == 200:
+                            data = resp.json().get("data", [])
+                            if not data: continue
+                            attrs = data[0].get("attributes", {})
+                            ttml = attrs.get("ttmlLocalizations") or attrs.get("ttml", "")
+                            if not ttml: continue
+                            final_lrc = self._parse_ttml_to_lrc(ttml)
+                            if final_lrc:
+                                self.lyric_cache[song_id] = final_lrc
+                            return final_lrc
+                    except Exception:
+                        continue
+                        
         return ""
+
+    def _parse_ttml_to_lrc(self, ttml: str) -> str:
+        try:
+            import html
+            import re
+            lines = []
+            
+            p_pattern = r'<p\s+([^>]*)>(.*?)</p>'
+            matches = list(re.finditer(p_pattern, ttml, re.DOTALL | re.IGNORECASE))
+            
+            if matches:
+                for match in matches:
+                    attrs = match.group(1)
+                    content = match.group(2)
+                    
+                    begin_match = re.search(r'begin="([^"]+)"', attrs, re.IGNORECASE)
+                    if not begin_match: continue
+                    timestamp = self._convert_time(begin_match.group(1))
+                    
+                    original_text = re.sub(r'<[^>]+>', '', content)
+                    original_text = html.unescape(original_text)
+                    original_text = " ".join(original_text.split())
+                    
+                    trans_text = ""
+                    key_match = re.search(r'itunes:key="([^"]+)"', attrs, re.IGNORECASE)
+                    if key_match:
+                        itunes_key = key_match.group(1)
+                        trans_pattern = rf'<text[^>]*for="{itunes_key}"[^>]*>(.*?)</text>'
+                        trans_match = re.search(trans_pattern, ttml, re.DOTALL | re.IGNORECASE)
+                        
+                        if trans_match:
+                            raw_trans = trans_match.group(1)
+                            raw_trans = re.sub(r'<[^>]+>', '', raw_trans)
+                            raw_trans = html.unescape(raw_trans)
+                            trans_text = " ".join(raw_trans.split())
+                            
+                    if trans_text:
+                        lines.append(f"{timestamp}{trans_text}")
+                        
+                    if original_text:
+                        lines.append(f"{timestamp}{original_text}")
+                                
+            return "\n".join(lines)
+            
+        except Exception:
+            return ""
 
     async def get_similar_artists(self, artist_id: str, name: str = "") -> list:
         storefronts_to_try = ["us", self.storefront] if self.storefront != "us" else ["us"]
-
         for sf in storefronts_to_try:
             api_url = f"{self.base_url}/catalog/{sf}/artists/{artist_id}?include=similar-artists,related-artists"
             try:
@@ -235,9 +317,7 @@ class AppleMusicAPI:
         from bs4 import BeautifulSoup
         
         name_slug = urllib.parse.quote(name.lower().replace(' ', '-')) if name else "artist"
-        
         url = f"https://music.apple.com/us/artist/{name_slug}/{artist_id}/see-all?section=similar-artists"
-        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -382,40 +462,6 @@ class AppleMusicAPI:
             })
         return results
 
-    def _parse_ttml_to_lrc(self, ttml: str) -> str:
-        try:
-            ttml = re.sub(r'\sxmlns="[^"]+"', '', ttml, count=1)
-            root = ET.fromstring(ttml)
-            
-            lines = []
-            for p in root.findall(".//p"):
-                begin = p.get("begin")
-                if not begin: continue
-                
-                timestamp = self._convert_time(begin)
-                
-                text_elements = p.findall(".//span")
-                if not text_elements:
-                    content = p.text.strip() if p.text else ""
-                    if content: lines.append(f"{timestamp}{content}")
-                else:
-                    original = ""
-                    translation = ""
-                    for span in text_elements:
-                        text = span.text.strip() if span.text else ""
-                        if not text: continue
-                        if not original: original = text
-                        else: translation = text
-                    
-                    if original:
-                        lines.append(f"{timestamp}{original}")
-                    if translation:
-                        lines.append(f"{timestamp}{translation}")
-            
-            return "\n".join(lines)
-        except:
-            return ""
-
     def _convert_time(self, time_str: str) -> str:
         time_str = time_str.replace("s", "")
         try:
@@ -423,6 +469,8 @@ class AppleMusicAPI:
                 parts = time_str.split(":")
                 s = float(parts[-1])
                 m = float(parts[-2])
+                if len(parts) > 2:
+                    m += float(parts[-3]) * 60 
             else:
                 total_seconds = float(time_str)
                 m = total_seconds // 60
