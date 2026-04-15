@@ -41,6 +41,7 @@ feishin 1.2.0 版本 （只适配这个版本的feishin）
 ├── navidrome.py              # Navidrome 协议路由
 ├── apple_music_api.py        # 苹果 API 及爬虫核心
 ├── database.py               # 播放列表 SQLite 数据库
+├── fm.py                     # 获取 last.fm 的 session_key 
 ├── requirements.txt          # 项目依赖清单
 ├── user.txt                  # 用户鉴权账密配置，格式必须为: 账号:密码
 ├── apple_token_cache.json    # 自动生成Token 缓存文件
@@ -64,6 +65,22 @@ chmod +x ./downloader
 ### 4. 项目启动，默认端口 8880 ：
 ```text
 python main.py
+```
+### 5. Last.fm 和 ListenBrainz 播放记录：
+1. listenbrainz
+```text
+https://listenbrainz.org/profile
+这里申请 ListenBrainz 的 token 并填入 config.yaml
+```
+2. last.fm
+```text
+https://www.last.fm/api/account/create
+这里申请 last.fm 的 api_key 和 api_secret 并填入 config.yaml
+```
+```text
+python fm.py
+执行并获取 last.fm 的 session_key 并填入 config.yaml
+注意：执行步骤按提示操作
 ```
 
 ## 🧭 使用指南与注意事项
