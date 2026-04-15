@@ -1,5 +1,6 @@
 import os
 import re
+import yaml
 import time
 import json
 import httpx
@@ -25,16 +26,11 @@ from fastapi.responses import JSONResponse, Response, RedirectResponse, Streamin
 
 app = FastAPI(title="Apple Music Navidrome & Subsonic Bridge")
 
-# 账号区域
 STOREFRONT = "cn"
 
-# 严格限制并发下载任务数为2，防止触发 Apple 服务器的风控
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
-
-# 重要：在此指定您 go run main.go 或者编译好的可执行文件所在的绝对路径！
 GO_CWD_PATH = "./"
 
-# 确保音频临时缓存目录存在
 TEMP_DIR = "./temp_cache"
 os.makedirs(TEMP_DIR, exist_ok=True)
 
@@ -77,7 +73,7 @@ def get_local_albums():
         else:
             _LOCAL_ALBUMS = []
     return _LOCAL_ALBUMS
-    
+
 from apple_music_api import apple_api
 
 def map_apple_song(apple_song: dict, force_artist_name: str = None, force_artist_id: str = None) -> dict:
@@ -161,7 +157,7 @@ def get_current_user(request: Request) -> str:
             return payload.get("username", "sky666")
         except: pass
         
-    return "sky666" #用户账号
+    return "sky666"
 
 ARTIST_ALBUM_CACHE = {} 
 
@@ -389,7 +385,7 @@ async def sub_get_user(request: Request, username: str = Query(None)):
             "shareRole": True
         }
     })
-    
+
 @app.api_route("/rest/ping", methods=["GET", "POST"])
 @app.api_route("/rest/ping.view", methods=["GET", "POST"])
 async def ping(request: Request): return build_subsonic_response()
@@ -460,6 +456,7 @@ async def get_album_list2(request: Request):
     except Exception as e: 
         return build_subsonic_response(error={"code": 0, "message": str(e)})
     
+
 @app.api_route("/rest/getScanStatus", methods=["GET", "POST"])
 @app.api_route("/rest/getScanStatus.view", methods=["GET", "POST"])
 async def sub_get_scan_status(request: Request):
@@ -472,9 +469,124 @@ async def sub_get_scan_status(request: Request):
         }
     })
 
+def load_scrobble_config():
+    try:
+        with open("config.yaml", "r", encoding="utf-8") as f:
+            return yaml.safe_load(f).get("scrobble", {})
+    except:
+        return {}
+
+SCROBBLE_CONF = load_scrobble_config()
+
+SCROBBLE_HISTORY = {}
+
+async def submit_listenbrainz(artist: str, title: str, album: str, timestamp: int, is_now_playing: bool = False):
+    conf = SCROBBLE_CONF.get("listenbrainz", {})
+    if not conf.get("enable") or not conf.get("token"): return
+
+    listen_type = "playing_now" if is_now_playing else "single"
+    headers = {"Authorization": f"Token {conf['token']}"}
+    payload = {"listen_type": listen_type, "payload": [{"listened_at": timestamp, "track_metadata": {"artist_name": artist, "track_name": title, "release_name": album}}]}
+    try:
+        async with httpx.AsyncClient() as client:
+            await client.post("https://api.listenbrainz.org/1/submit-listens", json=payload, headers=headers)
+            print(f"✅ [ListenBrainz] 同步成功: {artist} - {title} ({listen_type})")
+    except Exception as e: pass
+
+def sign_lastfm_request(params: dict, secret: str) -> str:
+    sig_str = "".join([f"{k}{params[k]}" for k in sorted(params.keys())]) + secret
+    return hashlib.md5(sig_str.encode('utf-8')).hexdigest()
+
+async def submit_lastfm(artist: str, title: str, album: str, timestamp: int, is_now_playing: bool = False):
+    conf = SCROBBLE_CONF.get("lastfm", {})
+    if not conf.get("enable") or not conf.get("api_key"): return
+
+    api_key, api_secret, sk = conf["api_key"], conf["api_secret"], conf.get("session_key")
+
+    if not sk and conf.get("username") and conf.get("password"):
+        print("🔄 [Last.fm] 正在换取 Session Key...")
+        auth_params = {"method": "auth.getMobileSession", "username": conf["username"], "password": conf["password"], "api_key": api_key}
+        auth_params["api_sig"] = sign_lastfm_request(auth_params, api_secret)
+        auth_params["format"] = "json"
+        try:
+            async with httpx.AsyncClient() as client:
+                res = await client.post("https://ws.audioscrobbler.com/2.0/", data=auth_params)
+                sk = res.json().get("session", {}).get("key")
+                if sk:
+                    SCROBBLE_CONF["lastfm"]["session_key"] = sk
+                    print(f"🔑 [Last.fm] Session Key 获取成功，请填入 config.yaml: {sk}")
+        except: return
+    if not sk: return
+
+    method = "track.updateNowPlaying" if is_now_playing else "track.scrobble"
+    params = {"method": method, "api_key": api_key, "sk": sk, "artist": artist, "track": title, "album": album}
+    if not is_now_playing: params["timestamp"] = str(timestamp)
+    params["api_sig"] = sign_lastfm_request(params, api_secret)
+    params["format"] = "json"
+
+    try:
+        async with httpx.AsyncClient() as client:
+            res = await client.post("https://ws.audioscrobbler.com/2.0/", data=params)
+            if res.status_code == 200: print(f"✅ [Last.fm] 同步成功: {artist} - {title} ({method})")
+    except: pass
+
 @app.api_route("/rest/scrobble", methods=["GET", "POST"])
 @app.api_route("/rest/scrobble.view", methods=["GET", "POST"])
-async def scrobble(request: Request): return build_subsonic_response()
+async def scrobble(request: Request, background_tasks: BackgroundTasks):
+    ids = request.query_params.getlist("id")
+    times = request.query_params.getlist("time")
+    client_submission = request.query_params.get("submission", "true").lower() == "true"
+    
+    if not ids or not SCROBBLE_CONF.get("enable"):
+        return build_subsonic_response()
+
+    async def process_scrobble():
+        for i, song_id in enumerate(ids):
+            try:
+                if str(song_id).startswith("vido_") or str(song_id).startswith("mv_"):
+                    continue
+                    
+                real_id = re.sub(r'\D', '', str(song_id))
+                if not real_id: continue
+                song_data = await apple_api.get_song_detail(real_id)
+                attr = song_data.get("attributes", {})
+                
+                title = attr.get("name", "Unknown Title")
+                artist = attr.get("artistName", "Unknown Artist")
+                album = attr.get("albumName", "Unknown Album")
+                
+                duration_ms = attr.get("durationInMillis", 0)
+                play_time_ms = 0
+                if i < len(times) and times[i]:
+                    try: play_time_ms = int(times[i])
+                    except: pass
+                
+                now_timestamp = int(time.time())
+                
+                is_real_scrobble = client_submission
+                if duration_ms > 0 and play_time_ms > 0:
+                    if (play_time_ms / duration_ms) >= 0.10:
+                        is_real_scrobble = True
+                        
+                if is_real_scrobble:
+                    last_scrobble_time = SCROBBLE_HISTORY.get(real_id, 0)
+                    min_interval = min((duration_ms // 1000) * 0.5, 60) if duration_ms > 0 else 60
+                    
+                    if now_timestamp - last_scrobble_time < min_interval:
+                        is_real_scrobble = False 
+                    else:
+                        SCROBBLE_HISTORY[real_id] = now_timestamp
+                
+                await asyncio.gather(
+                    submit_listenbrainz(artist, title, album, now_timestamp, not is_real_scrobble),
+                    submit_lastfm(artist, title, album, now_timestamp, not is_real_scrobble)
+                )
+                
+            except Exception as e:
+                print(f"⚠️ [Scrobble] 处理歌曲 ID {song_id} 失败: {e}")
+
+    background_tasks.add_task(process_scrobble)
+    return build_subsonic_response()
 
 @app.api_route("/rest/getGenres", methods=["GET", "POST"])
 @app.api_route("/rest/getGenres.view", methods=["GET", "POST"])
@@ -560,7 +672,7 @@ async def get_song(request: Request):
     except Exception as e: 
         return build_subsonic_response(error={"code": 0, "message": str(e)})
 
-async def delete_after_ttl(filepath: str, ttl_seconds: int = 300): # 5分钟后自动删除音频文件
+async def delete_after_ttl(filepath: str, ttl_seconds: int = 180):
     await asyncio.sleep(ttl_seconds)
     if os.path.exists(filepath):
         try: os.remove(filepath)
@@ -588,7 +700,6 @@ async def get_stream(request: Request, background_tasks: BackgroundTasks):
                 shutil.rmtree(task_out_dir, ignore_errors=True)
                 
             try:
-                # 🔥 调用编译好的 downloader 二进制文件或者 go run main.go
                 downloader_path = os.path.join(GO_CWD_PATH, "downloader")
                 if not os.path.exists(downloader_path):
                     print(f"❌ [致命错误] 找不到可执行文件: {downloader_path}")
@@ -670,6 +781,7 @@ async def get_lyrics(request: Request):
         })
     except Exception as e: 
         return build_subsonic_response(error={"code": 0, "message": str(e)})
+
 
 @app.api_route("/rest/getArtistInfo", methods=["GET", "POST"])
 @app.api_route("/rest/getArtistInfo.view", methods=["GET", "POST"])
@@ -786,7 +898,6 @@ async def search3(request: Request):
 async def get_album_and_dir(request: Request):
     id_str = request.query_params.get("id")
     if not id_str: return build_subsonic_response(error={"code": 10, "message": "ID is required."})
-
     if id_str.startswith("virtual_mv_album_"):
         real_artist_id = id_str.replace("virtual_mv_album_", "")
         try:
