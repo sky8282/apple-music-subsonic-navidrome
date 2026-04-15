@@ -87,8 +87,6 @@ libre_translate:
   
 # --- 第三方 api 详细配置 (仅需填写你选择的那一家) ---
 # 2. 腾讯云 (推荐国内使用, 500万字符/月免费)
-# SecretId:AKIDcQ3ScYHm25uVr13ykWHqZ8WheYO2fDbl
-# SecretKey:0nMjurb8QWO1QbXTOF96vc6MOBMNBl62
 tencent:
   secret-id: ""    # 填写 SecretId
   secret-key: ""       # 填写 SecretKey
