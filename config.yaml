@@ -82,15 +82,15 @@ translator-provider: "tencent"
 
 #1. 自建libretranslate，无字符数量限制
 libre_translate:
-  url: ""  # 填入你刚才搭建的 API 地址
-  api_key: ""                   # 如果你刚才没设置key，留空；设置了就填这里
+  url: ""          # 填入你刚才搭建的 API 地址
+  api_key: ""      # 如果你刚才没设置key，留空；设置了就填这里
   
 # --- 第三方 api 详细配置 (仅需填写你选择的那一家) ---
 # 2. 腾讯云 (推荐国内使用, 500万字符/月免费)
 tencent:
-  secret-id: ""    # 填写 SecretId
-  secret-key: ""       # 填写 SecretKey
-  region: "ap-shanghai"                                # api 服务器地区
+  secret-id: ""               # 填写 SecretId
+  secret-key: ""              # 填写 SecretKey
+  region: "ap-shanghai"       # api 服务器地区
 
 # 3. DeepL (50万字符/月免费)
 deepl:
