@@ -82,7 +82,7 @@ translator-provider: "tencent"
 
 #1. 自建libretranslate，无字符数量限制
 libre_translate:
-  url: "https://translator.kimu.edu.kg"  # 填入你刚才搭建的 API 地址
+  url: ""  # 填入你刚才搭建的 API 地址
   api_key: ""                   # 如果你刚才没设置key，留空；设置了就填这里
   
 # --- 第三方 api 详细配置 (仅需填写你选择的那一家) ---
@@ -90,8 +90,8 @@ libre_translate:
 # SecretId:AKIDcQ3ScYHm25uVr13ykWHqZ8WheYO2fDbl
 # SecretKey:0nMjurb8QWO1QbXTOF96vc6MOBMNBl62
 tencent:
-  secret-id: "AKIDcQ3ScYHm25uVr13ykWHqZ8WheYO2fDbl"    # 填写 SecretId
-  secret-key: "0nMjurb8QWO1QbXTOF96vc6MOBMNBl62"       # 填写 SecretKey
+  secret-id: ""    # 填写 SecretId
+  secret-key: ""       # 填写 SecretKey
   region: "ap-shanghai"                                # api 服务器地区
 
 # 3. DeepL (50万字符/月免费)
