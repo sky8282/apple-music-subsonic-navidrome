@@ -4,9 +4,33 @@ accounts:
     storefront: "cn"     # 账号所属区域 (必须小写, 如 cn, us, jp, hk)
     media-user-token: "your-media-user-token"
     # authorization-token: "your-cn-auth-token" # 可选，如果留空或为 "your-authorization-token"，程序会自动获取
-    #decrypt-m3u8-port: "192.168.64.16:7778" # 此账号对应的解密服务端口
-    #get-m3u8-port: "192.168.64.16:7779"     # 此账号对应的M3U8获取服务端口
+    decrypt-m3u8-port: "192.168.64.16:7778" # 此账号对应的解密服务端口
+    get-m3u8-port: "192.168.64.16:7779"     # 此账号对应的M3U8获取服务端口
 # ----------------------------------------------------------------
+# 播放记录同步 (Scrobbling)
+# ----------------------------------------------------------------
+scrobble:
+  enable: true
+  
+  # ListenBrainz 配置 (最简单，只需填入 User Token)
+  # 获取地址: https://listenbrainz.org/profile/
+  listenbrainz:
+    enable: true
+    token: "你的token"
+# ----------------------------------------------------------------
+  # Last.fm 配置
+  # 申请 API: https://www.last.fm/api/account/create
+  lastfm:
+    enable: true
+    api_key: "你的key"
+    api_secret: "你的key"
+# ----------------------------------------------------------------   
+    # 如果你没有 Session Key，程序第一次运行时会自动用下面的账号密码去换取并打印出来，不建议
+    username: ""
+    password: ""
+    # 建议执行 fm.py 获取lastfm 的 session_key 后填入
+    session_key: "你的key"
+# ----------------------------------------------------------------    
 # 是否开启全区域解密
 # true: 使用所有配置的账号（CN, JP, US ...）解密
 # false: 仅使用与链接区域匹配的账号解密
@@ -58,7 +82,7 @@ translator-provider: "tencent"
 
 #1. 自建libretranslate，无字符数量限制
 libre_translate:
-  url: ""  # 填入你刚才搭建的 API 地址
+  url: "https://translator.kimu.edu.kg"  # 填入你刚才搭建的 API 地址
   api_key: ""                   # 如果你刚才没设置key，留空；设置了就填这里
   
 # --- 第三方 api 详细配置 (仅需填写你选择的那一家) ---
@@ -66,8 +90,8 @@ libre_translate:
 # SecretId:AKIDcQ3ScYHm25uVr13ykWHqZ8WheYO2fDbl
 # SecretKey:0nMjurb8QWO1QbXTOF96vc6MOBMNBl62
 tencent:
-  secret-id: ""    # 填写 SecretId
-  secret-key: ""       # 填写 SecretKey
+  secret-id: "AKIDcQ3ScYHm25uVr13ykWHqZ8WheYO2fDbl"    # 填写 SecretId
+  secret-key: "0nMjurb8QWO1QbXTOF96vc6MOBMNBl62"       # 填写 SecretKey
   region: "ap-shanghai"                                # api 服务器地区
 
 # 3. DeepL (50万字符/月免费)
