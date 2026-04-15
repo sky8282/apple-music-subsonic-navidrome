@@ -1,7 +1,7 @@
 <img width="2872" height="2236" alt="1" src="https://github.com/user-attachments/assets/3e2874ed-7a7d-4315-a5f0-c1f0c6c22240" />
 
 # 🍎 Apple Music to Subsonic/Navidrome Bridge
-基于 FastAPI 构建的高性能桥接服务。它能够将 Apple Music 的海量高解析度曲库无缝接入到支持 Subsonic / Navidrome 协议的第三方播放器（如 Feishin、音流 等）中。
+基于 FastAPI 构建的高性能桥接服务。它能够将 Apple Music 的海量高解析度曲库无缝接入到支持 Subsonic / Navidrome 协议的第三方播放器（如 Feishin / ds one / 箭头音乐 等）中。
 
 ✨ 功能特性
 播放体验：模拟 Subsonic / Navidrome 接口协议，适配第三方音乐客户端。
