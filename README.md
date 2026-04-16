@@ -44,7 +44,7 @@ feishin 1.2.0 版本 （只适配这个版本的feishin）
 ├── fm.py                     # 获取 last.fm 的 session_key 
 ├── requirements.txt          # 项目依赖清单
 ├── user.txt                  # 用户鉴权账密配置，格式必须为: 账号:密码
-├── apple_token_cache.json    # 自动生成Token 缓存文件
+├── apple_token_cache.json    # 自动生成 Token 缓存文件
 ├── temp_cache/               # 自动生成音频临时存放目录，5分钟后自动删除以保持服务器硬盘空间
 ├── downloader                # 解压对应系统的 downloader-linux-x64.zip 或 downloader-mac-arm.zip
 └── config.yaml               # 必须填入你的  media-user-token 
@@ -64,7 +64,7 @@ chmod +x ./downloader
 ```
 ### 4. 项目启动，默认端口 8880 ：
 ```text
-python main.py
+python3 main.py
 ```
 ### 5. Last.fm 和 ListenBrainz 播放记录：
 1. listenbrainz
