@@ -1,14 +1,15 @@
 import re
-import json
-import httpx
-import xml.etree.ElementTree as ET
-from typing import Dict, List, Any, Optional
 import os
+import json
 import time
+import httpx
 import requests
 import urllib.parse
+import xml.etree.ElementTree as ET
+
 from bs4 import BeautifulSoup
 from cachetools import LRUCache
+from typing import Dict, List, Any, Optional
 
 class AppleMusicAPI:
     def __init__(self, storefront: str = "cn"):
@@ -18,13 +19,10 @@ class AppleMusicAPI:
         self.token = ""
         self.token_expires = 0
         self.lyric_cache = LRUCache(maxsize=100)
-        
         self._ensure_valid_token()
 
     def _ensure_valid_token(self):
-        
         current_time = time.time()
-        
         if self.token and current_time < self.token_expires:
             return self.token
 
@@ -39,7 +37,7 @@ class AppleMusicAPI:
             except Exception:
                 pass
 
-        print("🔄 正在自动从 Apple Music 获取全新 Bearer Token...")
+        print("🔄 正在自动从 Apple Music 刷新 Bearer Token...")
         try:
             r = requests.get("https://music.apple.com", timeout=15)
             r.raise_for_status()
@@ -56,7 +54,7 @@ class AppleMusicAPI:
             if not token_match: raise Exception("JS文件中未匹配到Token")
 
             new_token = token_match.group(1)
-            new_expires = current_time + 86400 * 7 # 赋予长达 7 天的有效期
+            new_expires = current_time + 86400 * 7
 
             self.token = new_token
             self.token_expires = new_expires
@@ -87,7 +85,7 @@ class AppleMusicAPI:
                         if acc.get('storefront', '').lower() == target_storefront.lower():
                             return acc.get('media-user-token', '')
         except ImportError:
-            print("⚠️ [DEBUG] 未安装 pyyaml，无法解析 config.yaml。请运行: pip install pyyaml")
+            print("⚠️ [DEBUG] 未安装 pyyaml，无法解析 config.yaml, 请运行: pip install pyyaml")
         except Exception as e:
             print(f"⚠️ [DEBUG] 读取 config.yaml 提取 token 失败: {e}")
         return ""
@@ -118,11 +116,13 @@ class AppleMusicAPI:
     async def search(self, keyword: str, limit: int = 20, types: str = "songs,albums,artists") -> Dict[str, Any]:
         safe_limit = min(limit, 25)
         url = f"{self.base_url}/catalog/{self.storefront}/search"
+        
         params = {
             "term": keyword,
             "limit": safe_limit,
             "types": types,
-            "include": "artists,albums", 
+            "include": "artists,albums,composers", 
+            "extend": "artists,composers",
             "l": "zh-CN"
         }
 
@@ -140,19 +140,34 @@ class AppleMusicAPI:
             }
 
     async def get_song_detail(self, song_id: str) -> dict:
-        url = f"{self.base_url}/catalog/{self.storefront}/songs/{song_id}"
+        url = f"https://amp-api.music.apple.com/v1/catalog/{self.storefront}/songs/{song_id}?include=artists,albums,composers&extend=artists,composers"
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, headers=self.headers)
             if resp.status_code != 200: raise Exception("Song not found")
             return resp.json().get("data", [{}])[0]
 
     async def get_album_detail(self, album_id: str) -> dict:
-        url = f"{self.base_url}/catalog/{self.storefront}/albums/{album_id}?include=tracks"
+        url = f"https://amp-api.music.apple.com/v1/catalog/{self.storefront}/albums/{album_id}?include=artists,tracks,composers&extend=tracks:composers"
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.get(url, headers=self.headers)
             if resp.status_code != 200: raise Exception("Album not found")
             return resp.json().get("data", [{}])[0]
 
+    async def get_songs_by_ids(self, song_ids: list) -> list:
+        if not song_ids: return []
+        try:
+            ids_str = ",".join(song_ids)
+            
+            url = f"https://amp-api.music.apple.com/v1/catalog/{self.storefront}/songs?ids={ids_str}&include=artists,albums,composers&extend=artists,composers"
+            
+            async with httpx.AsyncClient() as client:
+                resp = await client.get(url, headers=self.headers, timeout=15.0)
+                if resp.status_code == 200:
+                    return resp.json().get("data", [])
+        except Exception as e:
+            print(f"❌ [API] 批量获取曲目元数据失败: {e}")
+        return []
+              
     async def get_artist_detail(self, artist_id: str) -> dict:
         url = f"{self.base_url}/catalog/{self.storefront}/artists/{artist_id}"
         async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
@@ -227,13 +242,19 @@ class AppleMusicAPI:
                         if resp.status_code == 200:
                             data = resp.json().get("data", [])
                             if not data: continue
+                                
                             attrs = data[0].get("attributes", {})
                             ttml = attrs.get("ttmlLocalizations") or attrs.get("ttml", "")
+                            
                             if not ttml: continue
+                                
                             final_lrc = self._parse_ttml_to_lrc(ttml)
+                            
                             if final_lrc:
                                 self.lyric_cache[song_id] = final_lrc
+                                
                             return final_lrc
+                            
                     except Exception:
                         continue
                         
@@ -287,6 +308,7 @@ class AppleMusicAPI:
 
     async def get_similar_artists(self, artist_id: str, name: str = "") -> list:
         storefronts_to_try = ["us", self.storefront] if self.storefront != "us" else ["us"]
+
         for sf in storefronts_to_try:
             api_url = f"{self.base_url}/catalog/{sf}/artists/{artist_id}?include=similar-artists,related-artists"
             try:
@@ -317,7 +339,9 @@ class AppleMusicAPI:
         from bs4 import BeautifulSoup
         
         name_slug = urllib.parse.quote(name.lower().replace(' ', '-')) if name else "artist"
+        
         url = f"https://music.apple.com/us/artist/{name_slug}/{artist_id}/see-all?section=similar-artists"
+        
         headers = {
             'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36',
             'Accept-Language': 'en-US,en;q=0.9',
@@ -395,7 +419,7 @@ class AppleMusicAPI:
                 return []
 
     async def get_top_100_albums(self) -> list:
-        url = "https://classical.music.apple.com/api/classical/v7/query/view/us/charts/top-100-albums"
+        url = "https://classical.music.apple.com/api/classical/v7/query/view/us/section/6503959519/albums"
         headers = {
             "accept": "*/*", "auth-storefront": "us",
             "user-agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
@@ -463,6 +487,7 @@ class AppleMusicAPI:
         return results
 
     def _convert_time(self, time_str: str) -> str:
+        """将 Apple 的 00:00:00.000 或 0.00s 转换为 [mm:ss.xx] LRC 标准格式"""
         time_str = time_str.replace("s", "")
         try:
             if ":" in time_str:
@@ -479,4 +504,22 @@ class AppleMusicAPI:
         except:
             return "[00:00.00]"
 
-apple_api = AppleMusicAPI()
+def _get_default_storefront(default_sf: str = "cn") -> str:
+    import os
+    try:
+        import yaml
+        config_path = "config.yaml" 
+        if os.path.exists(config_path):
+            with open(config_path, 'r', encoding='utf-8') as f:
+                config = yaml.safe_load(f)
+                accounts = config.get('accounts', [])
+                if accounts and isinstance(accounts, list) and len(accounts) > 0:
+                    sf = accounts[0].get('storefront')
+                    if sf:
+                        return sf.strip().lower()
+    except Exception as e:
+        print(f"⚠️ 读取 config.yaml 提取 storefront 失败，回退到默认区域 {default_sf}: {e}")
+        
+    return default_sf
+
+apple_api = AppleMusicAPI(storefront=_get_default_storefront())
