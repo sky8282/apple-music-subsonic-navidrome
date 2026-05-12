@@ -26,8 +26,6 @@ from fastapi.responses import JSONResponse, Response, RedirectResponse, Streamin
 
 app = FastAPI(title="Apple Music Navidrome & Subsonic Bridge")
 
-STOREFRONT = "cn"
-
 DOWNLOAD_SEMAPHORE = asyncio.Semaphore(2)
 GO_CWD_PATH = "./"
 
